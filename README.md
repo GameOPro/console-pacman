@@ -1,2 +1,3 @@
-# console-pacman
-Pacman in console
+# Pacman in Console!
+Literally.
+
