@@ -58,7 +58,7 @@ GhostPhase ghostPhase = SCATTER_PHASE;
 int stage = 1;
 
 
-wchar_t mapPiece[12];
+wchar_t mapPiece[18];
 
 void PlayerInput();
 
@@ -150,39 +150,45 @@ int main(){
     mapPiece[9] = L'╣';
     mapPiece[10] = L'╬';
     mapPiece[11] = '-';
+    mapPiece[12] = L'┌';
+    mapPiece[13] = L'┐';
+    mapPiece[14] = L'└';
+    mapPiece[15] = L'┘';
+    mapPiece[16] = L'─';
+    mapPiece[17] = L'│';
 
 
     wstring map;
     
     map += L"╔════════════╗╔════════════╗";
     map += L"║            ║║            ║";
-    map += L"║ ╔══╗ ╔═══╗ ║║ ╔═══╗ ╔══╗ ║";
-    map += L"║@║xx║ ║xxx║ ║║ ║xxx║ ║xx║@║";
-    map += L"║ ╚══╝ ╚═══╝ ╚╝ ╚═══╝ ╚══╝ ║";
+    map += L"║ ┌──┐ ┌───┐ ║║ ┌───┐ ┌──┐ ║";
+    map += L"║@│xx│ │xxx│ ║║ │xxx│ │xx│@║";
+    map += L"║ └──┘ └───┘ ╚╝ └───┘ └──┘ ║";
     map += L"║                          ║";
-    map += L"║ ╔══╗ ╔╗ ╔══════╗ ╔╗ ╔══╗ ║";
-    map += L"║ ╚══╝ ║║ ╚══╗╔══╝ ║║ ╚══╝ ║";
-    map += L"║      ║║    ║║    ║║      ║";
-    map += L"╚════╗ ║╚══╗ ║║ ╔══╝║ ╔════╝";
-    map += L"xxxxx║ ║╔══╝ ╚╝ ╚══╗║ ║xxxxx";
-    map += L"xxxxx║ ║║          ║║ ║xxxxx";
-    map += L"xxxxx║ ║║ ╔══--══╗ ║║ ║xxxxx";
-    map += L"═════╝ ╚╝ ║xxxxxx║ ╚╝ ╚═════";
+    map += L"║ ┌──┐ ┌┐ ┌──────┐ ┌┐ ┌──┐ ║";
+    map += L"║ └──┘ ││ └──┐┌──┘ ││ └──┘ ║";
+    map += L"║      ││    ││    ││      ║";
+    map += L"╚════╗ │└──┐ ││ ┌──┘│ ╔════╝";
+    map += L"xxxxx║ │┌──┘ └┘ └──┐│ ║xxxxx";
+    map += L"xxxxx║ ││          ││ ║xxxxx";
+    map += L"xxxxx║ ││ ╔══--══╗ ││ ║xxxxx";
+    map += L"═════╝ └┘ ║xxxxxx║ └┘ ╚═════";
     map += L"x         ║xxxxxx║         x";
-    map += L"═════╗ ╔╗ ║xxxxxx║ ╔╗ ╔═════";
-    map += L"xxxxx║ ║║ ╚══════╝ ║║ ║xxxxx";
-    map += L"xxxxx║ ║║          ║║ ║xxxxx";
-    map += L"xxxxx║ ║║ ╔══════╗ ║║ ║xxxxx";
-    map += L"╔════╝ ╚╝ ╚══╗╔══╝ ╚╝ ╚════╗";
-    map += L"║            ║║            ║";
-    map += L"║ ╔══╗ ╔═══╗ ║║ ╔═══╗ ╔══╗ ║";
-    map += L"║ ╚═╗║ ╚═══╝ ╚╝ ╚═══╝ ║╔═╝ ║";
-    map += L"║@  ║║                ║║  @║";
-    map += L"╚═╗ ║║ ╔╗ ╔══════╗ ╔╗ ║║ ╔═╝";
-    map += L"╔═╝ ╚╝ ║║ ╚══╗╔══╝ ║║ ╚╝ ╚═╗";
-    map += L"║      ║║    ║║    ║║      ║";
-    map += L"║ ╔════╝╚══╗ ║║ ╔══╝╚════╗ ║";
-    map += L"║ ╚════════╝ ╚╝ ╚════════╝ ║";
+    map += L"═════╗ ┌┐ ║xxxxxx║ ┌┐ ╔═════";
+    map += L"xxxxx║ ││ ╚══════╝ ││ ║xxxxx";
+    map += L"xxxxx║ ││          ││ ║xxxxx";
+    map += L"xxxxx║ ││ ┌──────┐ ││ ║xxxxx";
+    map += L"╔════╝ └┘ └──┐┌──┘ └┘ ╚════╗";
+    map += L"║            ││            ║";
+    map += L"║ ┌──┐ ┌───┐ ││ ┌───┐ ┌──┐ ║";
+    map += L"║ └─┐│ └───┘ └┘ └───┘ │┌─┘ ║";
+    map += L"║@  ││                ││  @║";
+    map += L"╚═╗ ││ ┌┐ ┌──────┐ ┌┐ ││ ╔═╝";
+    map += L"╔═╝ └┘ ││ └──┐┌──┘ ││ └┘ ╚═╗";
+    map += L"║      ││    ││    ││      ║";
+    map += L"║ ┌────┘└──┐ ││ ┌──┘└────┐ ║";
+    map += L"║ └────────┘ └┘ └────────┘ ║";
     map += L"║                          ║";
     map += L"╚══════════════════════════╝";
     
@@ -289,6 +295,9 @@ int main(){
                 ghost->posY = 11;
                 ghost->leftSpawn = true;
             }
+
+            //Move Ghost
+
         }
 
 
