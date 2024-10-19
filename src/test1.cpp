@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <Windows.h>
 #include <math.h>
+#include <random>
 
 bool RunningGame = true;
 
@@ -23,23 +24,35 @@ int Lives = 3;
 int TotalDots = 0;
 int Dots = 0;
 
-
-
-
+bool energizerOn = false;
 
 using namespace std;
+
+chrono::steady_clock::time_point startTime;
+chrono::steady_clock::time_point playerCooldown;
+chrono::steady_clock::time_point phaseCooldown;
+chrono::steady_clock::time_point energizerCooldown;
+
+constexpr int phaseCooldownRate = 7; // seconds
+constexpr int energizerCooldownRate = 10; // seconds
+constexpr int playerCooldownRate = 85;
+constexpr int ghostCooldownRate = 150;
+constexpr int ghostRespawnTime = 5; // seconds
+
+
+
 
 enum PlayerState{
     PAC,
     MAN
 };
 
-enum Direction : char{
-    UP = 'W',
-    LEFT = 'A',
-    DOWN = 'S',
-    RIGHT = 'D',
-    STOP = '-'
+enum Direction{
+    UP,
+    LEFT,
+    DOWN,
+    RIGHT,
+    STOP
 };
 
 enum GhostPhase{
@@ -52,47 +65,63 @@ Direction lastMoveBuffer = STOP;
 Direction moveBuffer = STOP;
 PlayerState pState = PAC;
 
-
-
-GhostPhase ghostPhase = SCATTER_PHASE;
 int stage = 1;
-
-
 wchar_t mapPiece[18];
 
-void PlayerInput();
-
-bool movePlayer(wstring map, std::chrono::steady_clock::time_point* cooldownRate, Direction* moveBuffer);
-
-void ResetPlayer();
 
 struct GhostNode{
     int posX;
     int posY;
-    bool isSpecial = false;
+    int isSpecial = false;
 };
 
 struct Ghost{
-    int DefaultPosX;
-    int DefaultPosY;
+    const char name[7];
+    const int defaultPosX;
+    const int defaultPosY;
     int posX;
     int posY;
-    wchar_t character;
+    const wchar_t character;
     int minDotsToLeave;
     bool leftSpawn = false;
+    Direction lastDirection;
+    GhostPhase phase = SCATTER_PHASE;
+    int targetX = 0;
+    int targetY = 0;
+    chrono::steady_clock::time_point ghostCooldown;
+    chrono::steady_clock::time_point deathCooldown;
 
     void ResetGhost(){
-        posX = DefaultPosX;
-        posY = DefaultPosY;
+        posX = defaultPosX;
+        posY = defaultPosY;
+        leftSpawn = false;
+        lastDirection = STOP;
+        deathCooldown = startTime + chrono::seconds(ghostRespawnTime);
+
+        if(startTime >= phaseCooldown){
+            phase = CHASE_PHASE;
+        }else{
+            phase = SCATTER_PHASE;
+        }
     }
 };
 
-Ghost* ghosts[4];
+void PlayerInput();
 
-int FindDistance(int x, int y, int DistX, int DistY){
-    int dist = sqrt(pow((float)DistX - (float)x, 2) + pow((float)DistY - (float)y, 2));
-    return dist;
-}
+bool movePlayer(wstring map, Direction* moveBuffer);
+
+void moveGhost(Ghost* ghost, GhostPhase phase, wstring map);
+
+void ResetPlayer();
+
+float FindDistance(const int x, const int y, const int DistX, const int DistY);
+
+void setTarget(Ghost* ghost, GhostPhase phase);
+bool isValidDirection(Direction direction, wstring map,  int Y, int X);
+
+Ghost* ghosts[4];
+GhostNode nodes[34];
+
 
 int main(){
     // Create Screen Buffer
@@ -101,37 +130,16 @@ int main(){
 	SetConsoleActiveScreenBuffer(hConsole);
 	DWORD dwBytesWritten = 0;
     
-    Ghost Blinky = {};
-    Blinky.posX = 12;
-    Blinky.DefaultPosX = Blinky.posX;
-    Blinky.posY = 14;
-    Blinky.DefaultPosY = Blinky.posY;
-    Blinky.minDotsToLeave = 1;
-    Blinky.character = L'♥';
+    // Init stuff
+    srand((unsigned) time(NULL));
 
-    Ghost Pinkie = {};
-    Pinkie.posX = 13;
-    Pinkie.DefaultPosX = Pinkie.posX;
-    Pinkie.posY = 14;
-    Pinkie.DefaultPosY = Pinkie.posY;
-    Pinkie.minDotsToLeave = 10;
-    Pinkie.character = L'♦';
+    Ghost Blinky = {"Blinky", 12, 14, 12, 14, L'♥', 1, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate)};
 
-    Ghost Inky = {};
-    Inky.posX = 14;
-    Inky.DefaultPosX = Inky.posX;
-    Inky.posY = 14;
-    Inky.DefaultPosY = Inky.posY;
-    Inky.minDotsToLeave = 20;
-    Inky.character = L'♣';
+    Ghost Pinkie = {"Pinkie", 13, 14, 13, 14, L'♦', 10, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate)};
 
-    Ghost Clyde = {};
-    Clyde.posX = 15;
-    Clyde.DefaultPosX = Clyde.posX;
-    Clyde.posY = 14;
-    Clyde.DefaultPosY = Clyde.posY;
-    Clyde.minDotsToLeave = 30;
-    Clyde.character = L'♠';
+    Ghost Inky = {"Inky", 14, 14, 14, 14, L'♣', 20, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate)};
+
+    Ghost Clyde = {"Clyde", 15, 14, 15, 14, L'♠', 30, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate)};
 
     ghosts[0] = &Blinky;
     ghosts[1] = &Pinkie;
@@ -157,6 +165,42 @@ int main(){
     mapPiece[16] = L'─';
     mapPiece[17] = L'│';
 
+    // Set all 34 nodes
+    
+    nodes[0] = {6, 1};
+    nodes[1] = {21, 1};
+    nodes[2] = {1, 5};
+    nodes[3] = {6, 5};
+    nodes[4] = {9, 5};
+    nodes[5] = {12, 5};
+    nodes[6] = {15, 5};
+    nodes[7] = {18, 5};
+    nodes[8] = {21, 5 };
+    nodes[9] = {26, 5};
+    nodes[10] = {6, 8};
+    nodes[11] = {21, 8};
+    nodes[12] = {12, 11, true};
+    nodes[13] = {15, 11, true};
+    nodes[14] = {6, 14};
+    nodes[15] = {9, 14};
+    nodes[16] = {18, 14};
+    nodes[17] = {21, 14};
+    nodes[18] = {9, 17};
+    nodes[19] = {18, 17};
+    nodes[20] = {6, 20};
+    nodes[21] = {9, 20};
+    nodes[22] = {18, 20};
+    nodes[23] = {21, 20};
+    nodes[24] = {6, 23};
+    nodes[25] = {9, 23};
+    nodes[26] = {12, 23, true};
+    nodes[27] = {15, 23, true};
+    nodes[28] = {18, 23};
+    nodes[29] = {21, 23};
+    nodes[30] = {3, 26};
+    nodes[31] = {24, 26};
+    nodes[32] = {12, 29};
+    nodes[33] = {15, 29};
 
     wstring map;
     
@@ -169,17 +213,17 @@ int main(){
     map += L"║ ┌──┐ ┌┐ ┌──────┐ ┌┐ ┌──┐ ║";
     map += L"║ └──┘ ││ └──┐┌──┘ ││ └──┘ ║";
     map += L"║      ││    ││    ││      ║";
-    map += L"╚════╗ │└──┐ ││ ┌──┘│ ╔════╝";
-    map += L"xxxxx║ │┌──┘ └┘ └──┐│ ║xxxxx";
-    map += L"xxxxx║ ││          ││ ║xxxxx";
-    map += L"xxxxx║ ││ ╔══--══╗ ││ ║xxxxx";
-    map += L"═════╝ └┘ ║xxxxxx║ └┘ ╚═════";
-    map += L"x         ║xxxxxx║         x";
-    map += L"═════╗ ┌┐ ║xxxxxx║ ┌┐ ╔═════";
-    map += L"xxxxx║ ││ ╚══════╝ ││ ║xxxxx";
-    map += L"xxxxx║ ││          ││ ║xxxxx";
-    map += L"xxxxx║ ││ ┌──────┐ ││ ║xxxxx";
-    map += L"╔════╝ └┘ └──┐┌──┘ └┘ ╚════╗";
+    map += L"╚════╗ │└──┐x││x┌──┘│ ╔════╝";
+    map += L"xxxxx║ │┌──┘x└┘x└──┐│ ║xxxxx";
+    map += L"xxxxx║ ││xxxxxxxxxx││ ║xxxxx";
+    map += L"xxxxx║ ││x╔══--══╗x││ ║xxxxx";
+    map += L"═════╝ └┘x║xxxxxx║x└┘ ╚═════";
+    map += L"xxxxxx xxx║xxxxxx║xxx xxxxxx";
+    map += L"═════╗ ┌┐x║xxxxxx║x┌┐ ╔═════";
+    map += L"xxxxx║ ││x╚══════╝x││ ║xxxxx";
+    map += L"xxxxx║ ││xxxxxxxxxx││ ║xxxxx";
+    map += L"xxxxx║ ││x┌──────┐x││ ║xxxxx";
+    map += L"╔════╝ └┘x└──┐┌──┘x└┘ ╚════╗";
     map += L"║            ││            ║";
     map += L"║ ┌──┐ ┌───┐ ││ ┌───┐ ┌──┐ ║";
     map += L"║ └─┐│ └───┘ └┘ └───┘ │┌─┘ ║";
@@ -191,9 +235,11 @@ int main(){
     map += L"║ └────────┘ └┘ └────────┘ ║";
     map += L"║                          ║";
     map += L"╚══════════════════════════╝";
-    
-    auto cooldown = chrono::steady_clock::now();
-    auto cooldownRate = chrono::steady_clock::now();
+
+    startTime = chrono::steady_clock::now();
+    playerCooldown = startTime + chrono::milliseconds(playerCooldownRate);
+    phaseCooldown = startTime + chrono::seconds(phaseCooldownRate);
+    energizerCooldown = startTime + chrono::seconds(energizerCooldownRate);
 
     for(int i = 0; i < mapWidth; i++){
         for(int j = 0; j < mapHeight; j++){
@@ -206,7 +252,7 @@ int main(){
 
     TotalDots = Dots;
 
-    //clear screen
+    //clear screen (Needed for some reason)
     for(int nx = 0; nx < iScreenWidth; nx++){
         for(int ny = 0; ny < iScreenHeight; ny++){
             screen[(int)ny * (int)iScreenWidth + (int)nx] = ' ';
@@ -217,19 +263,17 @@ int main(){
     WriteConsoleOutputCharacterW(hConsole, screen, iScreenWidth * iScreenHeight, { 0,0 }, &dwBytesWritten);
 
     while(RunningGame){
-        cooldown = chrono::steady_clock::now();
-        chrono::duration<float> dCooldownTime = cooldown - cooldownRate;
-        float cooldownTime = dCooldownTime.count();
+        startTime = chrono::steady_clock::now();
 
         // Player Input
         PlayerInput();
 
         // Move & Collision
 
-        if(cooldownTime > 0.095f){
+        if(startTime >= playerCooldown){
 
-            if(!movePlayer(map, &cooldownRate, &moveBuffer)){
-                if(!movePlayer(map, &cooldownRate, &lastMoveBuffer)){
+            if(!movePlayer(map, &moveBuffer)){
+                if(!movePlayer(map, &lastMoveBuffer)){
                     moveBuffer = STOP;
                 }
             }else{
@@ -242,7 +286,7 @@ int main(){
                 pState = PAC;
             }
 
-            // Use Edge
+            // Use Edge teleport
             if(playerX == 0 && playerY == 14 && moveBuffer == LEFT){
                 playerX = 27;
             }else if(playerX == 27 && playerY == 14 && moveBuffer == RIGHT){
@@ -255,11 +299,24 @@ int main(){
             }
             else if(map[playerY * mapWidth + playerX] == '@'){
                 map[playerY * mapWidth + playerX] = ' ';
-                ghostPhase = FRIGHTENED_PHASE;
+                energizerOn = true;
+                energizerCooldown = startTime + chrono::seconds(energizerCooldownRate);
+                for(auto ghost : ghosts){
+                    ghost->phase = FRIGHTENED_PHASE;
+                }
             }
-        
         }
-        cooldown = cooldownRate;
+
+        if(energizerOn && startTime >= energizerCooldown){
+            energizerOn = false;
+            for(auto ghost : ghosts){
+                if(startTime >= phaseCooldown){
+                    ghost->phase = CHASE_PHASE;
+                }else{
+                    ghost->phase = SCATTER_PHASE;
+                }
+            }
+        }
 
         for(int nx = 0; nx < mapWidth; nx++){
             for(int ny = 0; ny < mapHeight; ny++){
@@ -283,24 +340,41 @@ int main(){
         for(auto ghost : ghosts){
             screen[ghost->posY * iScreenWidth + ghost->posX] = ghost->character;
 
-            if(playerX == ghost->posX && playerY == ghost->posY && ghostPhase == FRIGHTENED_PHASE){
+            if(startTime >= phaseCooldown && (ghost->phase != CHASE_PHASE | ghost->phase != FRIGHTENED_PHASE)){
+                ghost->phase = CHASE_PHASE;
+            }
+
+            if(playerX == ghost->posX && playerY == ghost->posY && ghost->phase == FRIGHTENED_PHASE){
                 ghost->ResetGhost();
-            }else if(playerX == ghost->posX && playerY == ghost->posY && ghostPhase && ghostPhase != FRIGHTENED_PHASE){
+            }else if(playerX == ghost->posX && playerY == ghost->posY && ghost->phase != FRIGHTENED_PHASE){
                 ResetPlayer();
+                phaseCooldown = startTime + chrono::seconds(phaseCooldownRate);
+                for(auto ghost : ghosts){
+                    ghost->ResetGhost();
+                }
                 Lives--;
             }
 
-            if(ghost->minDotsToLeave <= TotalDots-Dots && !ghost->leftSpawn){
+            if(ghost->minDotsToLeave <= TotalDots-Dots && !ghost->leftSpawn && startTime >= ghost->deathCooldown){
                 ghost->posX = 13,
                 ghost->posY = 11;
                 ghost->leftSpawn = true;
+                ghost->lastDirection = RIGHT;
             }
 
             //Move Ghost
+            if(startTime >= ghost->ghostCooldown && ghost->lastDirection != STOP){
+                moveGhost(ghost, ghost->phase, map);
 
+                 // Use Edge teleport
+                if(ghost->posX == 0 && ghost->posY == 14 && ghost->lastDirection == LEFT){
+                    ghost->posX = 27;
+                }else if(ghost->posX == 27 && ghost->posY == 14 && ghost->lastDirection == RIGHT){
+                    ghost->posX = 0;
+                }
+            }
+            
         }
-
-
 
         const char* _LivesText = "Lives:";
 
@@ -322,7 +396,7 @@ int main(){
             RunningGame = false;
         }
 
-        swprintf_s(screen, 40, L"Px:%d, Py:%d, Gx:%d", playerX, playerY, ghostPhase);
+        swprintf_s(screen, 40, L"Px:%d, Py:%d", playerX, playerY);
 
         screen[iScreenWidth * iScreenHeight - 1] = '\0';
         WriteConsoleOutputCharacterW(hConsole, screen, iScreenWidth * iScreenHeight, { 0,0 }, &dwBytesWritten);
@@ -358,65 +432,289 @@ void PlayerInput(){
     }
 }
 
-bool movePlayer(wstring map, std::chrono::steady_clock::time_point* cooldownRate, Direction* moveBuffer){
+bool movePlayer(wstring map, Direction* moveBuffer){
     switch(*moveBuffer){
         case UP:
             {
-                auto obj = std::find(std::begin(mapPiece), std::end(mapPiece), map[(playerY- 1 ) * mapWidth + playerX]);
-
-                if(obj != std::end(mapPiece)){
+                if(!isValidDirection(UP, map, playerY, playerX)){
                     return false;
-                }else{
-                    playerY--;
                 }
-
-                *cooldownRate = chrono::steady_clock::now();
+                playerY--;
                 break;
             }
         case LEFT:
             {
-                auto obj = std::find(std::begin(mapPiece), std::end(mapPiece), map[(playerY) * mapWidth + playerX - 1]);
-                
-                if(obj != std::end(mapPiece)){
+                if(!isValidDirection(LEFT, map, playerY, playerX)){
                     return false;
-                }else{
-                    playerX--;
                 }
-
-                *cooldownRate = chrono::steady_clock::now();
+                playerX--;
                 break;
             }
         case DOWN:
             {
-                auto obj = std::find(std::begin(mapPiece), std::end(mapPiece), map[(playerY + 1) * mapWidth + playerX]);
-                
-                if(obj != std::end(mapPiece)){
+                if(!isValidDirection(DOWN, map, playerY, playerX)){
                     return false;
-                }else{
-                    playerY++;
                 }
-
-                *cooldownRate = chrono::steady_clock::now();
+                playerY++;
                 break;
             }
         case RIGHT:
             {
-                auto obj = std::find(std::begin(mapPiece), std::end(mapPiece), map[(playerY) * mapWidth + playerX + 1]);
-                
-                if(obj != std::end(mapPiece)){
+                if(!isValidDirection(RIGHT, map, playerY, playerX)){
                     return false;
-                }else{
-                    playerX++;
                 }
-
-                *cooldownRate = chrono::steady_clock::now();
+                playerX++;
                 break;
             }
         default:
             return false;
     }
 
+    playerCooldown = startTime + chrono::milliseconds(playerCooldownRate);
     return true;
+}
+
+bool isValidDirection(Direction direction, wstring map, int Y, int X){
+    wchar_t* obj;
+
+    switch(direction){
+        case UP:
+            obj = std::find(std::begin(mapPiece), std::end(mapPiece), map[(Y - 1) * mapWidth + X]);
+            
+            break;
+        case LEFT:
+            obj = std::find(std::begin(mapPiece), std::end(mapPiece), map[(Y) * mapWidth + X - 1]);
+
+            break;
+        case DOWN:
+            obj = std::find(std::begin(mapPiece), std::end(mapPiece), map[(Y + 1) * mapWidth + X]);
+
+            break;
+        case RIGHT:
+            obj = std::find(std::begin(mapPiece), std::end(mapPiece), map[(Y) * mapWidth + X + 1]);
+
+            break;
+        default:
+            return false;
+    }
+
+    if(obj != std::end(mapPiece)){
+        return false;
+    }
+    return true;
+}
+
+void setTarget(Ghost* ghost, GhostPhase phase){
+    switch(phase){
+        case CHASE_PHASE:
+            switch(ghost->character){
+                case L'♥':
+                    ghost->targetX = playerX;
+                    ghost->targetY = playerY;
+                    break;
+                case L'♦':
+                    switch(moveBuffer){
+                    case UP:
+                        ghost->targetX = playerX;
+                        ghost->targetY = playerY - 4;
+                        break;
+                    case LEFT:
+                        ghost->targetX = playerX - 4;
+                        ghost->targetY = playerY;
+                        break;
+                    case DOWN:
+                        ghost->targetX = playerX;
+                        ghost->targetY = playerY + 4;
+                        break;
+                    case RIGHT:
+                        ghost->targetX = playerX + 4;
+                        ghost->targetY = playerY;
+                        break;
+                    default:
+                        break;
+                    }
+                    break;
+                case L'♣':
+                    switch(moveBuffer){
+                    case UP:
+                        {
+                        int dist = FindDistance(ghost[0].posX, ghost[0].posY, playerX, playerY - 2) * 2;
+                        ghost->targetX = playerX + dist;
+                        ghost->targetY = playerY + dist;
+                        break;
+                        }
+                    case LEFT:
+                        {
+                        int dist = FindDistance(ghost[0].posX, ghost[0].posY, playerX - 2, playerY) * 2;
+                        ghost->targetX = playerX + dist;
+                        ghost->targetY = playerY + dist;
+                        break;
+                        }
+                    case DOWN:
+                        {
+                        int dist = FindDistance(ghost[0].posX, ghost[0].posY, playerX, playerY + 2) * 2;
+                        ghost->targetX = playerX + dist;
+                        ghost->targetY = playerY + dist;
+                        break;
+                        }
+                    case RIGHT:
+                        {
+                        int dist = FindDistance(ghost[0].posX, ghost[0].posY, playerX + 2, playerY) * 2;
+                        ghost->targetX = playerX + dist;
+                        ghost->targetY = playerY + dist;
+                        break;
+                        }
+                    default:
+                        break;
+                    }
+                    break;
+                case L'♠':
+                    if(FindDistance(ghost->posX, ghost->posY, playerX, playerY) >= 8){
+                        ghost->targetX = playerX;
+                        ghost->targetY = playerY;
+                    }else{
+                        ghost->targetX = 0;
+                        ghost->targetY = 35;
+                    }
+                    break;
+            }
+            break;
+        case SCATTER_PHASE:
+            switch(ghost->character){
+                case L'♥':
+                    ghost->targetX = 2;
+                    ghost->targetY = 0;
+                    break;
+                case L'♦':
+                    ghost->targetX = 26;
+                    ghost->targetY = 0;
+                    break;
+                case L'♣':
+                    ghost->targetX = 28;
+                    ghost->targetY = 35;
+                    break;
+                case L'♠':
+                    ghost->targetX = 0;
+                    ghost->targetY = 35;
+                    break;
+            }
+            break;
+        case FRIGHTENED_PHASE:
+            break;
+        default:
+            break;
+    };
+}
+
+void moveGhost(Ghost* ghost, GhostPhase phase, wstring map){
+    bool nodeFound = false;
+    bool special = false;
+    Direction invalidDirection = STOP;
+
+    for(auto node : nodes){
+        if(ghost->posX == node.posX && ghost->posY == node.posY){
+            setTarget(ghost, phase);
+            nodeFound = true;
+            if(node.isSpecial){
+                special = true;
+            }
+        }
+    }
+
+    switch(ghost->lastDirection){
+        case UP:
+            invalidDirection = DOWN;
+            break;
+        case LEFT:
+            invalidDirection = RIGHT;
+            break;
+        case DOWN:
+            invalidDirection = UP;
+            break;
+        case RIGHT:
+            invalidDirection = LEFT;
+            break;
+        default:
+            break;
+    }
+
+    if(nodeFound){
+        float up = 999;
+        float left = 999;
+        float down = 999;
+        float right = 999;
+        float minimum = 999;
+        for(int i = UP; i != STOP; i++){
+            if(i != invalidDirection){
+                switch(i){
+                    case UP:
+                        if(isValidDirection(UP, map, ghost->posY, ghost->posX) && (!special || ghost->phase == FRIGHTENED_PHASE)){
+                            up = FindDistance(ghost->posX, ghost->posY - 1, ghost->targetX, ghost->targetY);
+                        }
+                        break;
+                    case LEFT:
+                        if(isValidDirection(LEFT, map, ghost->posY, ghost->posX)){
+                            left = FindDistance(ghost->posX - 1, ghost->posY, ghost->targetX, ghost->targetY);
+                        }
+                        break;
+                    case DOWN:
+                        if(isValidDirection(DOWN, map, ghost->posY, ghost->posX)){
+                            down = FindDistance(ghost->posX, ghost->posY + 1, ghost->targetX, ghost->targetY);
+                        }
+                        break;
+                    case RIGHT:
+                        if(isValidDirection(RIGHT, map, ghost->posY, ghost->posX)){
+                            right = FindDistance(ghost->posX + 1, ghost->posY, ghost->targetX, ghost->targetY);
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        minimum = min(min(up, left), min(down, right));
+
+        if(minimum == up){
+            ghost->lastDirection = UP;
+        }else if(minimum == left){
+            ghost->lastDirection = LEFT;
+        }else if(minimum == down){
+            ghost->lastDirection = DOWN;
+        }else if(minimum == right){
+            ghost->lastDirection = RIGHT;
+        }
+    }
+
+
+
+    if(!isValidDirection(ghost->lastDirection, map, ghost->posY, ghost->posX) && !nodeFound){
+        for(int i = UP; i != STOP; i++){
+            if(i != ghost->lastDirection){
+                if(isValidDirection(static_cast<Direction>(i), map, ghost->posY, ghost->posX) && i != invalidDirection){
+                    ghost->lastDirection = static_cast<Direction>(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    switch(ghost->lastDirection){
+        case UP:
+            ghost->posY--;
+            break;
+        case LEFT:
+            ghost->posX--;
+            break;
+        case DOWN:
+            ghost->posY++;
+            break;
+        case RIGHT:
+            ghost->posX++;
+            break;
+        default:
+            break;
+    }
+    ghost->ghostCooldown = startTime + chrono::milliseconds(ghostCooldownRate);
 }
 
 void ResetPlayer(){
@@ -424,4 +722,14 @@ void ResetPlayer(){
     playerY = 23;
 }
 
+float FindDistance(const int x, const int y, const int DistX, const int DistY){
+    float dist = sqrt(pow((float)DistX - (float)x, 2) + pow((float)DistY - (float)y, 2));
+    return dist;
+}
 
+void NewTarget(int* x, int* y){
+
+
+    *x = 1;
+    *y = 1;
+}
