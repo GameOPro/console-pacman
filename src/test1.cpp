@@ -35,8 +35,8 @@ chrono::steady_clock::time_point energizerCooldown;
 
 constexpr int phaseCooldownRate = 7; // seconds
 constexpr int energizerCooldownRate = 10; // seconds
-constexpr int playerCooldownRate = 85;
-constexpr int ghostCooldownRate = 150;
+constexpr int playerCooldownRate = 100; // milliseconds
+constexpr int ghostCooldownRate = 150; // milliseconds
 constexpr int ghostRespawnTime = 5; // seconds
 
 
@@ -300,10 +300,10 @@ int main(){
             else if(map[playerY * mapWidth + playerX] == '@'){
                 map[playerY * mapWidth + playerX] = ' ';
                 energizerOn = true;
-                energizerCooldown = startTime + chrono::seconds(energizerCooldownRate);
                 for(auto ghost : ghosts){
                     ghost->phase = FRIGHTENED_PHASE;
                 }
+                energizerCooldown = startTime + chrono::seconds(energizerCooldownRate);
             }
         }
 
@@ -340,7 +340,7 @@ int main(){
         for(auto ghost : ghosts){
             screen[ghost->posY * iScreenWidth + ghost->posX] = ghost->character;
 
-            if(startTime >= phaseCooldown && (ghost->phase != CHASE_PHASE | ghost->phase != FRIGHTENED_PHASE)){
+            if(startTime >= phaseCooldown && (ghost->phase != CHASE_PHASE | ghost->phase != FRIGHTENED_PHASE) && !energizerOn){
                 ghost->phase = CHASE_PHASE;
             }
 
@@ -396,7 +396,7 @@ int main(){
             RunningGame = false;
         }
 
-        swprintf_s(screen, 40, L"Px:%d, Py:%d", playerX, playerY);
+        swprintf_s(screen, 40, L"Energized:%d", energizerOn);
 
         screen[iScreenWidth * iScreenHeight - 1] = '\0';
         WriteConsoleOutputCharacterW(hConsole, screen, iScreenWidth * iScreenHeight, { 0,0 }, &dwBytesWritten);
