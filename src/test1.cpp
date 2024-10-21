@@ -76,7 +76,7 @@ struct GhostNode{
 };
 
 struct Ghost{
-    const char name[7];
+    const string name;
     const int defaultPosX;
     const int defaultPosY;
     int posX;
@@ -110,16 +110,16 @@ void PlayerInput();
 
 bool movePlayer(wstring map, Direction* moveBuffer);
 
-void moveGhost(Ghost* ghost, GhostPhase phase, wstring map);
+void moveGhost(unique_ptr<Ghost>& ghost, GhostPhase phase, wstring map);
 
 void ResetPlayer();
 
 float FindDistance(const int x, const int y, const int DistX, const int DistY);
 
-void setTarget(Ghost* ghost, GhostPhase phase);
+void setTarget(unique_ptr<Ghost>& ghost, GhostPhase phase);
 bool isValidDirection(Direction direction, wstring map,  int Y, int X);
 
-Ghost* ghosts[4];
+vector<unique_ptr<Ghost>> ghosts(4);
 GhostNode nodes[34];
 
 
@@ -133,18 +133,18 @@ int main(){
     // Init stuff
     srand((unsigned) time(NULL));
 
-    Ghost Blinky = {"Blinky", 12, 14, 12, 14, L'♥', 1, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate)};
+    Ghost Blinky = {"Blinky", 12, 14, 12, 14, L'♥', 1, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate), startTime + chrono::seconds(ghostRespawnTime)};
 
-    Ghost Pinkie = {"Pinkie", 13, 14, 13, 14, L'♦', 10, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate)};
+    Ghost Pinkie = {"Pinkie", 13, 14, 13, 14, L'♦', 10, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate), startTime + chrono::seconds(ghostRespawnTime)};
 
-    Ghost Inky = {"Inky", 14, 14, 14, 14, L'♣', 20, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate)};
+    Ghost Inky = {"Inky", 14, 14, 14, 14, L'♣', 20, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate), startTime + chrono::seconds(ghostRespawnTime)};
 
-    Ghost Clyde = {"Clyde", 15, 14, 15, 14, L'♠', 30, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate)};
+    Ghost Clyde = {"Clyde", 15, 14, 15, 14, L'♠', 30, false, STOP, SCATTER_PHASE, 0, 0, startTime + chrono::milliseconds(ghostCooldownRate), startTime + chrono::seconds(ghostRespawnTime)};
 
-    ghosts[0] = &Blinky;
-    ghosts[1] = &Pinkie;
-    ghosts[2] = &Inky;
-    ghosts[3] = &Clyde;
+    ghosts[0] = make_unique<Ghost>(Blinky);
+    ghosts[1] = make_unique<Ghost>(Pinkie);
+    ghosts[2] = make_unique<Ghost>(Inky);
+    ghosts[3] = make_unique<Ghost>(Clyde);
 
     mapPiece[0] = L'╔';
     mapPiece[1] = L'╗';
@@ -300,7 +300,7 @@ int main(){
             else if(map[playerY * mapWidth + playerX] == '@'){
                 map[playerY * mapWidth + playerX] = ' ';
                 energizerOn = true;
-                for(auto ghost : ghosts){
+                for(auto& ghost : ghosts){
                     ghost->phase = FRIGHTENED_PHASE;
                 }
                 energizerCooldown = startTime + chrono::seconds(energizerCooldownRate);
@@ -309,7 +309,7 @@ int main(){
 
         if(energizerOn && startTime >= energizerCooldown){
             energizerOn = false;
-            for(auto ghost : ghosts){
+            for(auto& ghost : ghosts){
                 if(startTime >= phaseCooldown){
                     ghost->phase = CHASE_PHASE;
                 }else{
@@ -337,10 +337,10 @@ int main(){
 
         // Update ghosts
 
-        for(auto ghost : ghosts){
+        for(auto& ghost : ghosts){
             screen[ghost->posY * iScreenWidth + ghost->posX] = ghost->character;
 
-            if(startTime >= phaseCooldown && (ghost->phase != CHASE_PHASE | ghost->phase != FRIGHTENED_PHASE) && !energizerOn){
+            if(startTime >= phaseCooldown && (ghost->phase != CHASE_PHASE && ghost->phase != FRIGHTENED_PHASE) && !energizerOn){
                 ghost->phase = CHASE_PHASE;
             }
 
@@ -349,7 +349,7 @@ int main(){
             }else if(playerX == ghost->posX && playerY == ghost->posY && ghost->phase != FRIGHTENED_PHASE){
                 ResetPlayer();
                 phaseCooldown = startTime + chrono::seconds(phaseCooldownRate);
-                for(auto ghost : ghosts){
+                for(auto& ghost : ghosts){
                     ghost->ResetGhost();
                 }
                 Lives--;
@@ -376,9 +376,9 @@ int main(){
             
         }
 
-        const char* _LivesText = "Lives:";
+        const string _LivesText = "Lives:";
 
-        for(int i = 0; i <= sizeof(_LivesText)/sizeof(wchar_t)+1; i++){
+        for(unsigned long long i = 0; i <= _LivesText.length(); i++){
             screen[(mapWidth + 3) * iScreenWidth + i + 2] = _LivesText[i];
         }
 
@@ -402,6 +402,7 @@ int main(){
         WriteConsoleOutputCharacterW(hConsole, screen, iScreenWidth * iScreenHeight, { 0,0 }, &dwBytesWritten);
     }
 
+    delete[] screen;
     return 0;
 }
 
@@ -475,7 +476,7 @@ bool movePlayer(wstring map, Direction* moveBuffer){
 }
 
 bool isValidDirection(Direction direction, wstring map, int Y, int X){
-    wchar_t* obj;
+    wchar_t* obj = nullptr;
 
     switch(direction){
         case UP:
@@ -501,10 +502,11 @@ bool isValidDirection(Direction direction, wstring map, int Y, int X){
     if(obj != std::end(mapPiece)){
         return false;
     }
+
     return true;
 }
 
-void setTarget(Ghost* ghost, GhostPhase phase){
+void setTarget(unique_ptr<Ghost>& ghost, GhostPhase phase){
     switch(phase){
         case CHASE_PHASE:
             switch(ghost->character){
@@ -515,7 +517,7 @@ void setTarget(Ghost* ghost, GhostPhase phase){
                 case L'♦':
                     switch(moveBuffer){
                     case UP:
-                        ghost->targetX = playerX;
+                        ghost->targetX = playerX - 4;
                         ghost->targetY = playerY - 4;
                         break;
                     case LEFT:
@@ -538,28 +540,28 @@ void setTarget(Ghost* ghost, GhostPhase phase){
                     switch(moveBuffer){
                     case UP:
                         {
-                        int dist = FindDistance(ghost[0].posX, ghost[0].posY, playerX, playerY - 2) * 2;
+                        int dist = FindDistance(ghosts[0]->posX, ghosts[0]->posY, playerX, playerY - 2) * 2;
                         ghost->targetX = playerX + dist;
                         ghost->targetY = playerY + dist;
                         break;
                         }
                     case LEFT:
                         {
-                        int dist = FindDistance(ghost[0].posX, ghost[0].posY, playerX - 2, playerY) * 2;
+                        int dist = FindDistance(ghosts[0]->posX, ghosts[0]->posY, playerX - 2, playerY) * 2;
                         ghost->targetX = playerX + dist;
                         ghost->targetY = playerY + dist;
                         break;
                         }
                     case DOWN:
                         {
-                        int dist = FindDistance(ghost[0].posX, ghost[0].posY, playerX, playerY + 2) * 2;
+                        int dist = FindDistance(ghosts[0]->posX, ghosts[0]->posY, playerX, playerY + 2) * 2;
                         ghost->targetX = playerX + dist;
                         ghost->targetY = playerY + dist;
                         break;
                         }
                     case RIGHT:
                         {
-                        int dist = FindDistance(ghost[0].posX, ghost[0].posY, playerX + 2, playerY) * 2;
+                        int dist = FindDistance(ghosts[0]->posX, ghosts[0]->posY, playerX + 2, playerY) * 2;
                         ghost->targetX = playerX + dist;
                         ghost->targetY = playerY + dist;
                         break;
@@ -606,7 +608,7 @@ void setTarget(Ghost* ghost, GhostPhase phase){
     };
 }
 
-void moveGhost(Ghost* ghost, GhostPhase phase, wstring map){
+void moveGhost(unique_ptr<Ghost>& ghost, GhostPhase phase, wstring map){
     bool nodeFound = false;
     bool special = false;
     Direction invalidDirection = STOP;
@@ -725,11 +727,4 @@ void ResetPlayer(){
 float FindDistance(const int x, const int y, const int DistX, const int DistY){
     float dist = sqrt(pow((float)DistX - (float)x, 2) + pow((float)DistY - (float)y, 2));
     return dist;
-}
-
-void NewTarget(int* x, int* y){
-
-
-    *x = 1;
-    *y = 1;
 }
